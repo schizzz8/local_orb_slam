@@ -379,7 +379,14 @@ void System::SaveTrajectoryTUM(const string &filename)
     cout << endl << "trajectory saved!" << endl;
 }
 
-void System::SaveTrajectoryDIAG(std::map<double, Eigen::Isometry3f> &camera_trajectory) {
+void System::SaveTrajectoryDIAG(std::map<double, Eigen::Isometry3f> &camera_trajectory)
+{
+    cout << endl << "Saving camera trajectory..." << endl;
+    if(mSensor==MONOCULAR)
+    {
+        cerr << "ERROR: SaveTrajectoryTUM cannot be used for monocular." << endl;
+        return;
+    }
 
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
@@ -387,6 +394,7 @@ void System::SaveTrajectoryDIAG(std::map<double, Eigen::Isometry3f> &camera_traj
     // Transform all keyframes so that the first keyframe is at the origin.
     // After a loop closure the first keyframe might not be at the origin.
     cv::Mat Two = vpKFs[0]->GetPoseInverse();
+
 
     // Frame pose is stored relative to its reference keyframe (which is optimized by BA and pose graph).
     // We need to get first the keyframe pose and then concatenate the relative transformation.
@@ -428,8 +436,16 @@ void System::SaveTrajectoryDIAG(std::map<double, Eigen::Isometry3f> &camera_traj
         transform.translation() = Eigen::Vector3f (twc.at<float>(0),twc.at<float>(1),twc.at<float>(2));
         transform.rotate(Eigen::Quaternion<float> (q[3],q[0],q[1],q[2]));
 
-        camera_trajectory.insert(std::pair<double,Eigen::Isometry3f> (*lT,transform));
+        std::pair<std::map<double,Eigen::Isometry3f>::iterator,bool> ret;
+        ret = camera_trajectory.insert(std::pair<double,Eigen::Isometry3f> (*lT,transform));
+        if(ret.second==false)
+            cerr << "Error inserting element!" << endl;
+//        cerr << setprecision(6) << *lT;
+//        cerr << " " <<  setprecision(9) << twc.at<float>(0) << " " << twc.at<float>(1) << " " << twc.at<float>(2);
+//        cerr << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
     }
+
+    cout << endl << "trajectory saved!" << endl;
 }
 
 void System::SaveKeyFrameTrajectoryTUM(const string &filename)
@@ -465,6 +481,47 @@ void System::SaveKeyFrameTrajectoryTUM(const string &filename)
     }
 
     f.close();
+    cout << endl << "trajectory saved!" << endl;
+}
+
+void System::SaveKeyFrameTrajectoryDIAG(std::map<double, Eigen::Isometry3f> &camera_trajectory)
+{
+    cout << endl << "Saving keyframe trajectory..." << endl;
+
+    vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
+    sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
+
+    // Transform all keyframes so that the first keyframe is at the origin.
+    // After a loop closure the first keyframe might not be at the origin.
+    //cv::Mat Two = vpKFs[0]->GetPoseInverse();
+
+    for(size_t i=0; i<vpKFs.size(); i++)
+    {
+        KeyFrame* pKF = vpKFs[i];
+
+        // pKF->SetPose(pKF->GetPose()*Two);
+
+        if(pKF->isBad())
+            continue;
+
+        cv::Mat R = pKF->GetRotation().t();
+        vector<float> q = Converter::toQuaternion(R);
+        cv::Mat t = pKF->GetCameraCenter();
+        //f << setprecision(6) << pKF->mTimeStamp << setprecision(7) << " " << t.at<float>(0) << " " << t.at<float>(1) << " " << t.at<float>(2)
+        //  << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
+
+        double timestamp = pKF->mTimeStamp;
+        Eigen::Isometry3f transform = Eigen::Isometry3f::Identity();
+        transform.translation() = Eigen::Vector3f (t.at<float>(0),t.at<float>(1),t.at<float>(2));
+        transform.rotate(Eigen::Quaternion<float> (q[3],q[0],q[1],q[2]));
+
+        std::pair<std::map<double,Eigen::Isometry3f>::iterator,bool> ret;
+        ret = camera_trajectory.insert(std::pair<double,Eigen::Isometry3f> (timestamp,transform));
+
+        if(ret.second==false)
+            cerr << "Error inserting element!" << endl;
+    }
+
     cout << endl << "trajectory saved!" << endl;
 }
 

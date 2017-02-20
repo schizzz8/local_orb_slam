@@ -15,6 +15,9 @@
 
 #include <map>
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+
 
 using namespace std;
 using namespace srrg_core;
@@ -24,8 +27,8 @@ typedef map<double,Eigen::Isometry3f> StampIsometryMap;
 void LoadImages(const string &input_filename, vector<string> &vstrImageFilenamesRGB,
                 vector<string> &vstrImageFilenamesD, vector<double> &vTimestampsRGB, vector<double> &vTimestampsDPT);
 
-void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, StampIsometryMap &camera_trajectory);
-
+//void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, StampIsometryMap &camera_trajectory);
+void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, ORB_SLAM2::System &slam);
 
 
 int main(int argc, char **argv) {
@@ -123,11 +126,12 @@ int main(int argc, char **argv) {
     cout << "mean tracking time: " << totaltime/nImages << endl;
 
     // Save camera trajectory
-    map<double,Eigen::Isometry3f> camera_trajectory;
-    SLAM.SaveTrajectoryDIAG(camera_trajectory);
-    cerr << camera_trajectory.size() << " camera poses\n";
-    cerr << endl;
-    writeToFile(input_filename,vTimestampsDPT,camera_trajectory);
+    //StampIsometryMap camera_trajectory;
+    //SLAM.SaveKeyFrameTrajectoryDIAG(camera_trajectory);
+    //cerr << camera_trajectory.size() << " camera poses\n";
+    //cerr << endl;
+    //writeToFile(input_filename,vTimestampsDPT,camera_trajectory);
+    writeToFile(input_filename,vTimestampsDPT,SLAM);
     return 0;
 }
 
@@ -144,7 +148,7 @@ void LoadImages(const string &input_filename, vector<string> &vstrImageFilenames
         BaseMessage* msg = reader.readMessage();
         if(!msg)
             continue;
-        BaseImageMessage* base_img=dynamic_cast<BaseImageMessage*>(msg);
+        PinholeImageMessage* base_img=dynamic_cast<PinholeImageMessage*>(msg);
         if (! base_img)
             continue;
         if(strcmp(base_img->topic().c_str(),"/camera/rgb/image_raw") == 0)
@@ -164,6 +168,7 @@ void LoadImages(const string &input_filename, vector<string> &vstrImageFilenames
             vstrImageFilenamesD.push_back(jt->second);
             vTimestampsRGB.push_back(it->first);
             vTimestampsDPT.push_back(jt->first);
+            //cerr << setprecision(16) << it->first << " " << it->second << " " << jt->first << " " << jt->second << endl;
             ++it;
             ++jt;
             continue;
@@ -176,7 +181,60 @@ void LoadImages(const string &input_filename, vector<string> &vstrImageFilenames
     }
 }
 
-void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, StampIsometryMap &camera_trajectory) {
+//void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, StampIsometryMap &camera_trajectory) {
+//    MessageReader reader;
+//    reader.open(input_filename);
+//    BaseMessage* msg = 0;
+//    MessageWriter writer;
+//    writer.open(input_filename.substr(0,input_filename.find("."))+"_with_trajectory.txt");
+
+//    Eigen::Isometry3f global_transform = Eigen::Isometry3f::Identity();
+//    Eigen::Isometry3f previous_transform;
+//    bool first = true;
+//    for(StampIsometryMap::iterator it = camera_trajectory.begin();it != camera_trajectory.end();it++){
+
+//        double pose_stamp = it->first;
+//        Eigen::Isometry3f current_transform = it->second;
+////        cerr << pose_stamp << " " << current_transform.translation().transpose();
+////        Eigen::Quaternionf rotation(current_transform.rotation());
+////        cerr << " " << rotation.x() << " " << rotation.y() << " " << rotation.z() << " " << rotation.w() << endl;
+
+//        if(first){
+//            previous_transform = current_transform;
+//            first = false;
+//            continue;
+//        }
+
+//        int idx=0;
+//        double image_stamp;
+//        bool found = false;
+//        while (found == false) {
+//            image_stamp = vTimestampsDPT[idx];
+//            idx++;
+//            if (pose_stamp - image_stamp == 0)
+//                found = true;
+//        }
+
+//        found = false;
+//        while(found == false) {
+//            msg = reader.readMessage();
+//            msg->untaint();
+//            PinholeImageMessage* img = dynamic_cast<PinholeImageMessage*> (msg);
+//            if(img)
+//                if((strcmp(img->topic().c_str(),"/camera/depth/image_raw") == 0) && (img->timestamp() == image_stamp)) {
+//                    Eigen::Isometry3f delta_camera = previous_transform.inverse() * current_transform;
+//                    Eigen::Isometry3f delta_robot = img->offset() * delta_camera * img->offset().inverse();
+//                    global_transform = global_transform*delta_robot;
+//                    img->setOdometry(global_transform);
+//                    found = true;
+//                    writer.writeMessage(*msg);
+//                }
+//        }
+//        previous_transform = current_transform;
+//    }
+//}
+
+void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, ORB_SLAM2::System &slam){
     MessageReader reader;
     reader.open(input_filename);
     BaseMessage* msg = 0;
@@ -186,12 +244,25 @@ void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, S
     Eigen::Isometry3f global_transform = Eigen::Isometry3f::Identity();
     Eigen::Isometry3f previous_transform;
     bool first = true;
-    for(StampIsometryMap::iterator it = camera_trajectory.begin();
-        it != camera_trajectory.end();
-        it++){
 
-        double pose_stamp = it->first;
-        Eigen::Isometry3f current_transform = it->second;
+    string trajectory_filename = "camera_trajectory.txt";
+    slam.SaveKeyFrameTrajectoryTUM(trajectory_filename);
+
+    ifstream trajectory_file;
+    trajectory_file.open(trajectory_filename.c_str());
+    string line;
+    while(getline(trajectory_file,line)) {
+
+        istringstream iss(line);
+        double pose_stamp;
+        float x,y,z,qx,qy,qz,qw;
+        iss >> pose_stamp
+                >> x >> y >> z
+                >> qx >> qy >> qz >> qw;
+
+        Eigen::Isometry3f current_transform = Eigen::Isometry3f::Identity();
+        current_transform.translation() = Eigen::Vector3f (x,y,z);
+        current_transform.rotate(Eigen::Quaternion<float> (qw,qx,qy,qz));
 
         if(first){
             previous_transform = current_transform;
@@ -213,7 +284,7 @@ void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, S
         while(found == false) {
             msg = reader.readMessage();
             msg->untaint();
-            BaseImageMessage* img = dynamic_cast<BaseImageMessage*> (msg);
+            PinholeImageMessage* img = dynamic_cast<PinholeImageMessage*> (msg);
             if(img)
                 if((strcmp(img->topic().c_str(),"/camera/depth/image_raw") == 0) && (img->timestamp() == image_stamp)) {
                     Eigen::Isometry3f delta_camera = previous_transform.inverse() * current_transform;
@@ -225,8 +296,5 @@ void writeToFile(const string &input_filename, vector<double> &vTimestampsDPT, S
                 }
         }
         previous_transform = current_transform;
-
     }
-    writer.close();
-    reader.close();
 }

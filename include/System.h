@@ -36,7 +36,12 @@
 #include "ORBVocabulary.h"
 #include "Viewer.h"
 
+#include <Eigen/Core>
 #include <Eigen/Geometry>
+
+#include <srrg_txt_io/message_reader.h>
+#include <srrg_txt_io/message_writer.h>
+#include <srrg_txt_io/pinhole_image_message.h>
 
 namespace ORB_SLAM2
 {
@@ -108,6 +113,7 @@ public:
     // Call first Shutdown()
     // See format details at: http://vision.in.tum.de/data/datasets/rgbd-dataset
     void SaveKeyFrameTrajectoryTUM(const string &filename);
+    void SaveKeyFrameTrajectoryDIAG(std::map<double,Eigen::Isometry3f> &camera_trajectory);
 
     // Save camera trajectory in the KITTI dataset format.
     // Only for stereo and RGB-D. This method does not work for monocular.
